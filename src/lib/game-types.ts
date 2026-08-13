@@ -49,3 +49,7 @@ export type GameStatePublico = {
 
 export const GAME_CHANNEL = "game";
 export const GAME_EVENT = "state";
+// Canal separado (mismo topic, evento distinto) para mostrar/ocultar el QR
+// de acceso en pantalla: es puramente cosmético, no forma parte del estado
+// del juego, así que no vale la pena acoplarlo a GameStatePublico.
+export const QR_EVENT = "qr";

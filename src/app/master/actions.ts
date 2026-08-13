@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMaster, setMasterCookie } from "@/lib/master-session";
-import { broadcastGameState } from "@/lib/realtime-server";
+import { broadcastGameState, broadcastQR } from "@/lib/realtime-server";
 import {
   computeLeaderboard,
   resolverElegidos,
@@ -684,4 +684,11 @@ export async function actualizarDuracionGlobal(segundos: number) {
 
   revalidatePath("/master");
   return clamped;
+}
+
+// Muestra/oculta en la pantalla un QR para unirse al juego. No toca
+// game_state: es un aviso puramente visual, independiente de la fase actual.
+export async function toggleQR(visible: boolean) {
+  await requireMaster();
+  await broadcastQR(visible);
 }

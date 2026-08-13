@@ -1,15 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useGameChannel } from "@/lib/use-game-channel";
+import { useGameChannel, useQRChannel } from "@/lib/use-game-channel";
 import { getTirafloneTotales, getPujasActuales, getVotosDetalle } from "@/app/juego/actions";
 import { Countdown } from "@/components/countdown";
+import { QRCodeImage } from "@/components/qr-code";
 import type { GameStatePublico, RuletaResultado } from "@/lib/game-types";
 import { TEAMS } from "@/lib/teams";
 
 export function PantallaView({ initialState }: { initialState: GameStatePublico }) {
   const [state, setState] = useState(initialState);
   useGameChannel(setState);
+
+  const [qrVisible, setQrVisible] = useState(false);
+  useQRChannel(setQrVisible);
+
+  if (qrVisible) {
+    return <QRPantalla />;
+  }
 
   if (state.fase === "lobby") {
     return (
@@ -204,6 +212,22 @@ export function PantallaView({ initialState }: { initialState: GameStatePublico 
   }
 
   return null;
+}
+
+function QRPantalla() {
+  // Este componente solo se monta tras un toggle del master por el canal de
+  // Realtime (qrVisible arranca en false), nunca en el render inicial ni en
+  // el servidor, así que leer window aquí es seguro.
+  const [origin] = useState(() => window.location.origin);
+
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-6 text-center">
+      <p className="text-lg uppercase tracking-[0.3em] text-amber-400">Únete al juego</p>
+      <h1 className="text-4xl font-black">Escanea el código para entrar</h1>
+      <QRCodeImage value={origin} size={360} />
+      <p className="font-mono text-2xl text-zinc-300">{origin}</p>
+    </div>
+  );
 }
 
 function MecanicaBanner({ mecanica }: { mecanica: NonNullable<GameStatePublico["prueba"]>["mecanica"] }) {

@@ -12,6 +12,7 @@ import {
   reiniciarPartida,
   saltarTurnoRuleta,
   actualizarDuracionGlobal,
+  toggleQR,
 } from "@/app/master/actions";
 import { useGameChannel } from "@/lib/use-game-channel";
 import { Countdown } from "@/components/countdown";
@@ -139,6 +140,7 @@ export function MasterPanel({
         >
           Volver al lobby
         </button>
+        <QRToggleButton />
       </div>
 
       <ReiniciarPartidaBoton />
@@ -197,6 +199,30 @@ export function MasterPanel({
         })}
       </div>
     </div>
+  );
+}
+
+function QRToggleButton() {
+  const [visible, setVisible] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() =>
+        startTransition(async () => {
+          const next = !visible;
+          await toggleQR(next);
+          setVisible(next);
+        })
+      }
+      className={`rounded-lg border px-4 py-2 text-sm font-semibold disabled:opacity-30 ${
+        visible ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-300 text-zinc-800"
+      }`}
+    >
+      {visible ? "Ocultar QR" : "Mostrar QR"}
+    </button>
   );
 }
 
