@@ -6,7 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMaster, setMasterCookie } from "@/lib/master-session";
 import { broadcastGameState } from "@/lib/realtime-server";
 import { computeLeaderboard, resolverElegidos } from "@/lib/game-state";
-import { getTirafloneTotales } from "@/app/juego/actions";
+import { getTirafloneTotales, getVotosDetalle } from "@/app/juego/actions";
 
 export type MasterLoginState = { error?: string };
 
@@ -295,6 +295,39 @@ export async function revealCurrent() {
       if (filas.length > 0) {
         await admin.from("respuestas").upsert(filas, { onConflict: "player_id,prueba_id" });
       }
+    }
+  }
+
+  // Votación de equipo: todo el equipo saca la misma nota, según si la
+  // opción más votada por su equipo (no la de cada uno) era la correcta.
+  if (prueba.tipo === "votacion") {
+    const votos = await getVotosDetalle(prueba.id);
+
+    const porEquipo = new Map<string, number[]>();
+    for (const v of votos) {
+      const arr = porEquipo.get(v.team_id) ?? [];
+      arr.push(v.indice);
+      porEquipo.set(v.team_id, arr);
+    }
+
+    const mayoriaPorEquipo: Record<string, number> = {};
+    for (const [teamId, indices] of porEquipo) {
+      const conteo = new Map<number, number>();
+      for (const i of indices) conteo.set(i, (conteo.get(i) ?? 0) + 1);
+      mayoriaPorEquipo[teamId] = [...conteo.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    }
+
+    const indiceCorrecto = prueba.solucion.indice_correcto as number;
+    solucionParaMostrar = { ...prueba.solucion, mayoriaPorEquipo };
+
+    const filas = votos.map((v) => ({
+      player_id: v.player_id,
+      prueba_id: prueba.id,
+      respuesta: { indice: v.indice },
+      puntos: mayoriaPorEquipo[v.team_id] === indiceCorrecto ? prueba.puntos_base : 0,
+    }));
+    if (filas.length > 0) {
+      await admin.from("respuestas").upsert(filas, { onConflict: "player_id,prueba_id" });
     }
   }
 

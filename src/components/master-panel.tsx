@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import {
   launchPrueba,
   cerrarApuestas,
@@ -46,9 +47,17 @@ export function MasterPanel({
     <div className="flex flex-1 flex-col gap-6 bg-zinc-50 px-6 py-10">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-zinc-900">Control de la partida</h1>
-        <span className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
-          {state.fase}
-        </span>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/master/pruebas"
+            className="text-sm font-medium text-zinc-600 underline"
+          >
+            Editar preguntas
+          </Link>
+          <span className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+            {state.fase}
+          </span>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">

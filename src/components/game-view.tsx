@@ -8,6 +8,8 @@ import {
   submitBid,
   getPujasActuales,
   getMiPuntuacion,
+  submitVoto,
+  getVotosDetalle,
 } from "@/app/juego/actions";
 import { useGameChannel } from "@/lib/use-game-channel";
 import type { GameStatePublico } from "@/lib/game-types";
@@ -103,6 +105,15 @@ export function GameView({
               key={state.prueba.id}
               pruebaId={state.prueba.id}
               enunciado={state.prueba.enunciado}
+            />
+          ) : state.prueba.tipo === "votacion" ? (
+            <VotacionInput
+              key={state.prueba.id}
+              pruebaId={state.prueba.id}
+              enunciado={state.prueba.enunciado}
+              opciones={(state.prueba.config.opciones as string[] | undefined) ?? []}
+              equipo={player.team_id}
+              propioId={player.id}
             />
           ) : (
             <>
@@ -334,6 +345,73 @@ function SubastaInput({ pruebaId, equipo }: { pruebaId: string; equipo: TeamId }
   );
 }
 
+function VotacionInput({
+  pruebaId,
+  enunciado,
+  opciones,
+  equipo,
+  propioId,
+}: {
+  pruebaId: string;
+  enunciado: string;
+  opciones: string[];
+  equipo: TeamId;
+  propioId: string;
+}) {
+  const [miVoto, setMiVoto] = useState<number | null>(null);
+  const [votos, setVotos] = useState<{ player_id: string; nombre: string; indice: number }[]>([]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const todos = await getVotosDetalle(pruebaId);
+      const delEquipo = todos.filter((v) => v.team_id === equipo);
+      setVotos(delEquipo);
+      const propio = delEquipo.find((v) => v.player_id === propioId);
+      if (propio) setMiVoto(propio.indice);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [pruebaId, equipo, propioId]);
+
+  function votar(indice: number) {
+    setMiVoto(indice);
+    submitVoto(pruebaId, indice);
+  }
+
+  return (
+    <div className="flex w-full flex-col gap-4">
+      <h1 className="text-xl font-bold text-zinc-900">🗳️ {enunciado}</h1>
+      <div className="flex w-full flex-col gap-2">
+        {opciones.map((opcion, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => votar(i)}
+            className={`rounded-lg border px-4 py-2.5 text-left text-sm font-medium ${
+              miVoto === i
+                ? "border-zinc-900 bg-zinc-900 text-white"
+                : "border-zinc-300 text-zinc-800 hover:border-zinc-900"
+            }`}
+          >
+            {opcion}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-col gap-1 rounded-lg border border-zinc-200 bg-white p-3 text-left">
+        <p className="text-xs font-semibold text-zinc-500">Vuestro equipo va votando:</p>
+        {votos.length === 0 && <p className="text-xs text-zinc-400">Nadie ha votado todavía.</p>}
+        {votos.map((v) => (
+          <p key={v.player_id} className="text-xs text-zinc-700">
+            {v.nombre}: <span className="font-medium">{opciones[v.indice] ?? "?"}</span>
+          </p>
+        ))}
+      </div>
+      <p className="text-xs text-zinc-400">
+        Gana la opción con más votos de tu equipo — puedes cambiar tu voto mientras dé tiempo.
+      </p>
+    </div>
+  );
+}
+
 function PruebaInput({
   prueba,
   onSubmit,
@@ -460,6 +538,28 @@ function RespuestaCorrecta({
       <p className="rounded-lg bg-green-100 px-4 py-2.5 text-sm font-semibold text-green-800">
         El número era: {String(solucion.objetivo)}
       </p>
+    );
+  }
+  if (prueba.tipo === "votacion") {
+    const opciones = (prueba.config.opciones as string[] | undefined) ?? [];
+    const indiceCorrecto = solucion.indice_correcto as number;
+    const mayoriaPorEquipo = (solucion.mayoriaPorEquipo as Record<string, number>) ?? {};
+    return (
+      <div className="flex w-full flex-col gap-2">
+        <p className="rounded-lg bg-green-100 px-4 py-2.5 text-sm font-semibold text-green-800">
+          Correcta: {opciones[indiceCorrecto]}
+        </p>
+        {TEAMS.map((t) => {
+          const mayoria = mayoriaPorEquipo[t.id];
+          if (mayoria === undefined) return null;
+          const acerto = mayoria === indiceCorrecto;
+          return (
+            <p key={t.id} className={`text-xs ${acerto ? "text-green-700" : "text-zinc-500"}`}>
+              {t.icon} {t.name} votó: {opciones[mayoria] ?? "?"} {acerto ? "✓" : ""}
+            </p>
+          );
+        })}
+      </div>
     );
   }
   if (prueba.tipo === "subasta") {

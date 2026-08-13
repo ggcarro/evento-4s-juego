@@ -284,3 +284,56 @@ export async function getPujasActuales(pruebaId: string): Promise<Record<string,
 
   return Object.fromEntries((data ?? []).map((p) => [p.team_id, p.cantidad]));
 }
+
+export type VotoDetalle = { player_id: string; nombre: string; team_id: string; indice: number };
+
+// Votación de equipo: se puede cambiar el voto mientras la ronda está
+// activa (upsert), a diferencia de una respuesta normal que es de una vez.
+export async function submitVoto(pruebaId: string, indice: number): Promise<SubmitAnswerResult> {
+  const player = await getAuthenticatedPlayer();
+  if (!player) {
+    return { ok: false, message: "Tu sesión no es válida." };
+  }
+
+  const admin = createAdminClient();
+  const { data: state } = await admin
+    .from("game_state")
+    .select("fase, prueba_actual_id")
+    .single();
+
+  if (!state || state.fase !== "activa" || state.prueba_actual_id !== pruebaId) {
+    return { ok: false, message: "Esta votación ya no está activa." };
+  }
+
+  const { error } = await admin
+    .from("respuestas")
+    .upsert(
+      { player_id: player.id, prueba_id: pruebaId, respuesta: { indice }, puntos: 0 },
+      { onConflict: "player_id,prueba_id" }
+    );
+
+  if (error) {
+    return { ok: false, message: "No se pudo registrar tu voto." };
+  }
+  return { ok: true, message: "Voto registrado." };
+}
+
+// Todos los votos de todos los equipos para esta prueba. El jugador filtra
+// a su propio equipo en el cliente; la pantalla los agrega por equipo.
+export async function getVotosDetalle(pruebaId: string): Promise<VotoDetalle[]> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("respuestas")
+    .select("player_id, respuesta, players!inner(name, team_id)")
+    .eq("prueba_id", pruebaId);
+
+  return (data ?? []).map((r) => {
+    const player = r.players as unknown as { name: string; team_id: string };
+    return {
+      player_id: r.player_id,
+      nombre: player.name,
+      team_id: player.team_id,
+      indice: (r.respuesta as { indice?: number }).indice ?? -1,
+    };
+  });
+}

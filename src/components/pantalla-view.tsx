@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useGameChannel } from "@/lib/use-game-channel";
-import { getTirafloneTotales, getPujasActuales } from "@/app/juego/actions";
+import { getTirafloneTotales, getPujasActuales, getVotosDetalle } from "@/app/juego/actions";
 import type { GameStatePublico } from "@/lib/game-types";
 import { TEAMS } from "@/lib/teams";
 
@@ -85,6 +85,24 @@ export function PantallaView({ initialState }: { initialState: GameStatePublico 
               ? `La respuesta era: ${String(state.solucion?.objetivo)}`
               : `Entre ${String(state.prueba.config.min)} y ${String(state.prueba.config.max)}`}
           </p>
+        )}
+
+        {state.prueba.tipo === "votacion" && (
+          <VotacionPantalla
+            pruebaId={state.prueba.id}
+            opciones={(state.prueba.config.opciones as string[] | undefined) ?? []}
+            revelado={state.fase === "revelada"}
+            indiceCorrecto={
+              state.fase === "revelada"
+                ? (state.solucion?.indice_correcto as number | undefined)
+                : undefined
+            }
+            mayoriaPorEquipo={
+              state.fase === "revelada"
+                ? (state.solucion?.mayoriaPorEquipo as Record<string, number> | undefined)
+                : undefined
+            }
+          />
         )}
 
         {state.prueba.tipo === "tira_afloja" && (
@@ -250,6 +268,90 @@ function PujasBar({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function calcularMayorias(votos: { team_id: string; indice: number }[]): Record<string, number> {
+  const porEquipo = new Map<string, Map<number, number>>();
+  for (const v of votos) {
+    const conteo = porEquipo.get(v.team_id) ?? new Map<number, number>();
+    conteo.set(v.indice, (conteo.get(v.indice) ?? 0) + 1);
+    porEquipo.set(v.team_id, conteo);
+  }
+  const resultado: Record<string, number> = {};
+  for (const [teamId, conteo] of porEquipo) {
+    resultado[teamId] = [...conteo.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  }
+  return resultado;
+}
+
+function VotacionPantalla({
+  pruebaId,
+  opciones,
+  revelado,
+  indiceCorrecto,
+  mayoriaPorEquipo,
+}: {
+  pruebaId: string;
+  opciones: string[];
+  revelado: boolean;
+  indiceCorrecto?: number;
+  mayoriaPorEquipo?: Record<string, number>;
+}) {
+  const [votosEnVivo, setVotosEnVivo] = useState<{ team_id: string; indice: number }[]>([]);
+
+  useEffect(() => {
+    if (revelado) return;
+    let cancelado = false;
+    const interval = setInterval(async () => {
+      const votos = await getVotosDetalle(pruebaId);
+      if (!cancelado) setVotosEnVivo(votos);
+    }, 1000);
+    return () => {
+      cancelado = true;
+      clearInterval(interval);
+    };
+  }, [pruebaId, revelado]);
+
+  const mayorias = revelado ? (mayoriaPorEquipo ?? {}) : calcularMayorias(votosEnVivo);
+
+  return (
+    <div className="flex w-full max-w-3xl flex-col gap-8">
+      <div className="grid grid-cols-2 gap-6 text-2xl font-bold">
+        {opciones.map((op, i) => {
+          const isCorrect = revelado && indiceCorrecto === i;
+          return (
+            <div
+              key={i}
+              className={`rounded-2xl border-2 px-6 py-5 ${
+                isCorrect
+                  ? "border-green-400 bg-green-400/10 text-green-300"
+                  : "border-zinc-700 text-zinc-100"
+              }`}
+            >
+              {op}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap justify-center gap-3">
+        {TEAMS.map((t) => {
+          const mayoria = mayorias[t.id];
+          if (mayoria === undefined) return null;
+          const acerto = revelado && indiceCorrecto === mayoria;
+          return (
+            <span
+              key={t.id}
+              className={`rounded-full border px-4 py-2 text-lg font-bold ${
+                acerto ? "border-green-400 text-green-300" : "border-zinc-600 text-zinc-200"
+              }`}
+            >
+              {t.icon} {t.name}: {opciones[mayoria] ?? "?"}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }
