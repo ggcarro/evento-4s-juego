@@ -19,6 +19,7 @@ export type Fase =
   | "lobby"
   | "apostando"
   | "subastando"
+  | "ruleta"
   | "activa"
   | "revelada"
   | "leaderboard"
@@ -121,6 +122,9 @@ export interface Database {
           ends_at: string | null;
           elegidos: Record<string, string> | null;
           ruleta: Record<string, unknown> | null;
+          ruleta_turno: TeamId | null;
+          ruleta_parados: string[] | null;
+          duracion_global_segundos: number;
           updated_at: string;
         };
         Insert: {
@@ -130,6 +134,9 @@ export interface Database {
           ends_at?: string | null;
           elegidos?: Record<string, string> | null;
           ruleta?: Record<string, unknown> | null;
+          ruleta_turno?: TeamId | null;
+          ruleta_parados?: string[] | null;
+          duracion_global_segundos?: number;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["game_state"]["Insert"]>;

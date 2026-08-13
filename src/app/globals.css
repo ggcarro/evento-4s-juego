@@ -24,3 +24,15 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Ruleta: bucle continuo de la tira de casillas mientras gira. La distancia
+   de una vuelta completa (--loop-width) la fija cada tarjeta en línea, según
+   cuántas casillas tenga esa pregunta. */
+@keyframes ruleta-spin {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-1 * var(--loop-width)));
+  }
+}

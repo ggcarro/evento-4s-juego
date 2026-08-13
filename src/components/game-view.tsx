@@ -11,8 +11,10 @@ import {
   submitVoto,
   getVotosDetalle,
   soyElElegido,
+  pararRuletaEquipo,
 } from "@/app/juego/actions";
 import { useGameChannel } from "@/lib/use-game-channel";
+import { Countdown } from "@/components/countdown";
 import type { GameStatePublico } from "@/lib/game-types";
 import { TEAMS } from "@/lib/teams";
 import type { TeamId } from "@/lib/supabase/types";
@@ -97,6 +99,17 @@ export function GameView({
         </div>
       )}
 
+      {state.fase === "ruleta" && state.prueba && (
+        <RuletaCeremoniaJugador
+          key={state.prueba.id}
+          ruleta={state.ruleta}
+          turno={state.ruleta_turno}
+          teamId={player.team_id}
+          playerId={player.id}
+          color={team?.color}
+        />
+      )}
+
       {state.fase === "activa" && state.prueba && (
         <div className="flex w-full max-w-sm flex-1 flex-col items-center justify-center gap-5">
           <MecanicaBadge mecanica={state.prueba.mecanica} />
@@ -105,6 +118,13 @@ export function GameView({
             mecanica={state.prueba.mecanica}
           />
           <RuletaBanner ruleta={state.ruleta} teamId={player.team_id} color={team?.color} />
+          {state.prueba.tipo !== "titulo" && (
+            <Countdown
+              key={state.ends_at}
+              endsAt={state.ends_at}
+              className="text-sm font-semibold text-zinc-400"
+            />
+          )}
 
           {state.prueba.tipo === "titulo" ? (
             <h1 className="text-3xl font-black text-zinc-900">{state.prueba.enunciado}</h1>
@@ -220,6 +240,69 @@ function SoyElElegidoBanner({
     <p className="w-full rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-center text-sm font-semibold text-green-800">
       {texto}
     </p>
+  );
+}
+
+function RuletaCeremoniaJugador({
+  ruleta,
+  turno,
+  teamId,
+  playerId,
+  color,
+}: {
+  ruleta: GameStatePublico["ruleta"];
+  turno: GameStatePublico["ruleta_turno"];
+  teamId: TeamId;
+  playerId: string;
+  color?: string;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [mensaje, setMensaje] = useState<string | null>(null);
+  const entradaPropia = ruleta?.[teamId];
+  const equipoEnTurno = TEAMS.find((t) => t.id === turno);
+  const esMiTurno = turno === teamId;
+  const soyRepresentante = entradaPropia?.representante.id === playerId;
+
+  function parar() {
+    startTransition(async () => {
+      const result = await pararRuletaEquipo();
+      setMensaje(result.message);
+    });
+  }
+
+  return (
+    <div className="flex w-full max-w-sm flex-1 flex-col items-center justify-center gap-5">
+      <p className="text-lg font-bold text-zinc-900">🎡 ¡Ruleta!</p>
+      {esMiTurno ? (
+        soyRepresentante ? (
+          <>
+            <p className="text-sm text-zinc-600">
+              Eres el representante de tu equipo. Mirad la pantalla y, cuando queráis, para la
+              ruleta.
+            </p>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={parar}
+              className="h-32 w-32 select-none rounded-full text-lg font-bold text-white shadow-lg active:scale-95 disabled:opacity-50"
+              style={{ backgroundColor: color ?? "#18181b" }}
+            >
+              PARAR
+            </button>
+            {mensaje && <p className="text-xs text-zinc-500">{mensaje}</p>}
+          </>
+        ) : (
+          <p className="text-sm text-zinc-600">
+            🎡 Le toca a vuestro equipo — {entradaPropia?.representante.name ?? "vuestro representante"}{" "}
+            tiene que parar la ruleta. ¡Mirad la pantalla!
+          </p>
+        )
+      ) : (
+        <p className="text-sm text-zinc-500">
+          Le toca a {equipoEnTurno?.icon} {equipoEnTurno?.name}... esperad vuestro turno.
+        </p>
+      )}
+    </div>
   );
 }
 

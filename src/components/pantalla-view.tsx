@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useGameChannel } from "@/lib/use-game-channel";
 import { getTirafloneTotales, getPujasActuales, getVotosDetalle } from "@/app/juego/actions";
+import { Countdown } from "@/components/countdown";
 import type { GameStatePublico, RuletaResultado } from "@/lib/game-types";
 import { TEAMS } from "@/lib/teams";
 
@@ -29,6 +30,21 @@ export function PantallaView({ initialState }: { initialState: GameStatePublico 
     );
   }
 
+  if (state.fase === "ruleta" && state.prueba) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-10 px-16 text-center">
+        <p className="text-lg font-bold uppercase tracking-wide text-amber-400">🎡 ¡Gira la ruleta!</p>
+        <RuletaCeremoniaPantalla
+          key={state.prueba.id}
+          segmentos={(state.prueba.config.ruleta_segmentos as RuletaResultado[] | undefined) ?? []}
+          ruleta={state.ruleta}
+          turno={state.ruleta_turno}
+          parados={state.ruleta_parados}
+        />
+      </div>
+    );
+  }
+
   if (
     (state.fase === "activa" || state.fase === "revelada" || state.fase === "subastando") &&
     state.prueba
@@ -36,17 +52,14 @@ export function PantallaView({ initialState }: { initialState: GameStatePublico 
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-10 px-16 text-center">
         <MecanicaBanner mecanica={state.prueba.mecanica} />
+        {state.fase === "activa" && (
+          <Countdown key={state.ends_at} endsAt={state.ends_at} className="text-2xl font-bold text-zinc-300" />
+        )}
 
-        {state.prueba.mecanica === "ruleta" && (
+        {state.fase === "revelada" && state.prueba.mecanica === "ruleta" && (
           <RuletaPanel
-            key={`${state.prueba.id}-${state.ends_at}`}
             ruleta={state.ruleta}
-            revelado={state.fase === "revelada"}
-            resumen={
-              state.fase === "revelada"
-                ? (state.solucion?.ruleta_resumen as Record<string, { mayoria: boolean }> | undefined)
-                : undefined
-            }
+            resumen={state.solucion?.ruleta_resumen as Record<string, { mayoria: boolean }> | undefined}
           />
         )}
 
@@ -210,112 +223,231 @@ function MecanicaBanner({ mecanica }: { mecanica: NonNullable<GameStatePublico["
 
 function RuletaPanel({
   ruleta,
-  revelado,
   resumen,
 }: {
   ruleta: GameStatePublico["ruleta"];
-  revelado: boolean;
   resumen?: Record<string, { mayoria: boolean }>;
 }) {
   if (!ruleta) return null;
   return (
     <div className="grid w-full max-w-5xl grid-cols-2 gap-5 sm:grid-cols-4">
-      {TEAMS.map((t, i) => {
+      {TEAMS.map((t) => {
         const entrada = ruleta[t.id];
         if (!entrada) return null;
+        const mayoria = resumen?.[t.id]?.mayoria;
         return (
-          <RuletaCard
+          <div
             key={t.id}
-            index={i}
-            color={t.color}
-            icon={t.icon}
-            name={t.name}
-            representante={entrada.representante.name}
-            resultado={entrada.resultado}
-            revelado={revelado}
-            mayoria={resumen?.[t.id]?.mayoria}
-          />
+            className="flex flex-col items-center gap-2 rounded-2xl border-2 px-4 py-5"
+            style={{ borderColor: t.color, backgroundColor: `${t.color}1a` }}
+          >
+            <span className="text-sm font-bold uppercase tracking-wide" style={{ color: t.color }}>
+              {t.icon} {t.name}
+            </span>
+            <p className="text-lg font-black" style={{ color: t.color }}>
+              {entrada.representante.name}
+            </p>
+            <p className="text-sm font-bold text-zinc-100">
+              {entrada.resultado.tipo === "convocatoria"
+                ? "☠️ 4ª convocatoria"
+                : `🎯 +${entrada.resultado.valor} pts`}
+            </p>
+            <p
+              className={`text-xs font-semibold ${
+                entrada.resultado.tipo === "convocatoria"
+                  ? "text-red-400"
+                  : mayoria
+                    ? "text-green-400"
+                    : "text-zinc-400"
+              }`}
+            >
+              {entrada.resultado.tipo === "convocatoria"
+                ? "Marcador a 0"
+                : mayoria
+                  ? "¡Mayoría acertó! Bote conseguido"
+                  : "Mayoría falló, sin bote"}
+            </p>
+          </div>
         );
       })}
     </div>
   );
 }
 
-function RuletaCard({
-  index,
-  color,
-  icon,
-  name,
-  representante,
-  resultado,
-  revelado,
-  mayoria,
-}: {
-  index: number;
-  color: string;
-  icon: string;
-  name: string;
-  representante: string;
-  resultado: RuletaResultado;
-  revelado: boolean;
-  mayoria?: boolean;
-}) {
-  const [girado, setGirado] = useState(false);
+const REEL_CARD_WIDTH = 170;
+const REEL_VIEW_WIDTH = 560;
+const REEL_LANDING_MS = 2200;
 
-  useEffect(() => {
-    const t = setTimeout(() => setGirado(true), 700 + index * 350);
-    return () => clearTimeout(t);
-  }, [index]);
+function indexDeResultado(segmentos: RuletaResultado[], objetivo: RuletaResultado): number {
+  const i = segmentos.findIndex((s) =>
+    s.tipo === "convocatoria" && objetivo.tipo === "convocatoria"
+      ? true
+      : s.tipo === "puntos" && objetivo.tipo === "puntos" && s.valor === objetivo.valor
+  );
+  return i >= 0 ? i : 0;
+}
+
+// La tira muestra las casillas REALES de esta pregunta, girando en bucle
+// continuo, hasta que llega la señal de "parar" (el equipo pasa a
+// ruleta_parados) — entonces frena con una transición y aterriza EXACTO en
+// la casilla que ya estaba decidida desde que se lanzó la prueba.
+function RuletaReel({
+  segmentos,
+  objetivo,
+  girando,
+}: {
+  segmentos: RuletaResultado[];
+  objetivo: RuletaResultado;
+  girando: boolean;
+}) {
+  const n = Math.max(1, segmentos.length);
+  const vueltas = 6;
+  const tira = Array.from({ length: vueltas }, () => segmentos).flat();
+  const targetIndex = indexDeResultado(segmentos, objetivo);
+  const offsetParado =
+    (vueltas - 2) * n * REEL_CARD_WIDTH +
+    targetIndex * REEL_CARD_WIDTH -
+    (REEL_VIEW_WIDTH / 2 - REEL_CARD_WIDTH / 2);
 
   return (
     <div
-      className="flex flex-col items-center gap-3 rounded-2xl border-2 px-4 py-5 transition-colors duration-500"
-      style={{ borderColor: color, backgroundColor: girado ? `${color}1a` : "transparent" }}
+      className="relative mx-auto overflow-hidden rounded-xl border-2 border-zinc-700 bg-zinc-900"
+      style={{ width: REEL_VIEW_WIDTH, height: 88 }}
     >
-      <span className="text-sm font-bold uppercase tracking-wide" style={{ color }}>
-        {icon} {name}
-      </span>
-
-      <span
-        className="text-4xl"
-        style={{
-          display: "inline-block",
-          transition: "transform 1200ms cubic-bezier(0.33, 1, 0.68, 1)",
-          transform: girado ? "rotate(1080deg)" : "rotate(0deg)",
-        }}
-      >
-        🎡
-      </span>
-
+      <div className="pointer-events-none absolute left-1/2 top-0 z-10 h-full w-1 -translate-x-1/2 bg-amber-400" />
       <div
-        className={`flex flex-col items-center gap-1 transition-opacity duration-500 ${
-          girado ? "opacity-100" : "opacity-0"
-        }`}
+        className="flex h-full"
+        style={
+          girando
+            ? ({
+                "--loop-width": `${n * REEL_CARD_WIDTH}px`,
+                animation: `ruleta-spin ${Math.max(0.6, n * 0.35).toFixed(2)}s linear infinite`,
+              } as React.CSSProperties)
+            : {
+                transform: `translateX(-${offsetParado}px)`,
+                transition: `transform ${REEL_LANDING_MS}ms cubic-bezier(0.12,0.71,0.28,1)`,
+              }
+        }
       >
-        <p className="text-lg font-black" style={{ color }}>
-          {representante}
+        {tira.map((seg, i) => (
+          <div
+            key={i}
+            className="flex shrink-0 flex-col items-center justify-center gap-0.5 border-r border-zinc-700"
+            style={{ width: REEL_CARD_WIDTH }}
+          >
+            <span className="text-xl">{seg.tipo === "convocatoria" ? "☠️" : "🎯"}</span>
+            <span className="text-sm font-bold text-zinc-100">
+              {seg.tipo === "convocatoria" ? "4ª convocatoria" : `+${seg.valor} pts`}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RuletaTurnoCard({
+  team,
+  segmentos,
+  entrada,
+  enTurno,
+  yaResuelto,
+}: {
+  team: { id: string; name: string; icon: string; color: string };
+  segmentos: RuletaResultado[];
+  entrada: { representante: { name: string }; resultado: RuletaResultado } | undefined;
+  enTurno: boolean;
+  yaResuelto: boolean;
+}) {
+  const [aterrizando, setAterrizando] = useState(false);
+  const eraTurnoRef = useRef(false);
+
+  useEffect(() => {
+    if (eraTurnoRef.current && !enTurno && yaResuelto) {
+      setAterrizando(true);
+      const t = setTimeout(() => setAterrizando(false), REEL_LANDING_MS);
+      eraTurnoRef.current = enTurno;
+      return () => clearTimeout(t);
+    }
+    eraTurnoRef.current = enTurno;
+  }, [enTurno, yaResuelto]);
+
+  if (!entrada) return null;
+
+  if (enTurno || aterrizando) {
+    return (
+      <div
+        className="flex flex-col items-center gap-3 rounded-2xl border-2 px-4 py-5"
+        style={{ borderColor: team.color, backgroundColor: `${team.color}1a` }}
+      >
+        <span className="text-base font-bold uppercase tracking-wide" style={{ color: team.color }}>
+          {team.icon} {team.name}
+        </span>
+        <p className="text-lg font-black text-zinc-100">{entrada.representante.name}</p>
+        <RuletaReel segmentos={segmentos} objetivo={entrada.resultado} girando={enTurno} />
+      </div>
+    );
+  }
+
+  if (yaResuelto) {
+    return (
+      <div
+        className="flex flex-col items-center gap-2 rounded-2xl border-2 px-4 py-5 opacity-90"
+        style={{ borderColor: team.color, backgroundColor: `${team.color}1a` }}
+      >
+        <span className="text-sm font-bold uppercase tracking-wide" style={{ color: team.color }}>
+          {team.icon} {team.name}
+        </span>
+        <p className="text-base font-black" style={{ color: team.color }}>
+          {entrada.representante.name}
         </p>
         <p className="text-sm font-bold text-zinc-100">
-          {resultado.tipo === "convocatoria" ? "☠️ 4ª convocatoria" : `🎯 +${resultado.valor} pts`}
+          {entrada.resultado.tipo === "convocatoria"
+            ? "☠️ 4ª convocatoria"
+            : `🎯 +${entrada.resultado.valor} pts`}
         </p>
-        {revelado && (
-          <p
-            className={`text-xs font-semibold ${
-              resultado.tipo === "convocatoria"
-                ? "text-red-400"
-                : mayoria
-                  ? "text-green-400"
-                  : "text-zinc-400"
-            }`}
-          >
-            {resultado.tipo === "convocatoria"
-              ? "Marcador a 0"
-              : mayoria
-                ? "¡Mayoría acertó! Bote conseguido"
-                : "Mayoría falló, sin bote"}
-          </p>
-        )}
       </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-zinc-800 px-4 py-5 opacity-50">
+      <span className="text-sm font-bold uppercase tracking-wide text-zinc-400">
+        {team.icon} {team.name}
+      </span>
+      <p className="text-sm text-zinc-500">Esperando su turno...</p>
+    </div>
+  );
+}
+
+function RuletaCeremoniaPantalla({
+  segmentos,
+  ruleta,
+  turno,
+  parados,
+}: {
+  segmentos: RuletaResultado[];
+  ruleta: GameStatePublico["ruleta"];
+  turno: GameStatePublico["ruleta_turno"];
+  parados: GameStatePublico["ruleta_parados"];
+}) {
+  if (!ruleta) return null;
+  return (
+    <div className="grid w-full max-w-6xl grid-cols-1 gap-6 sm:grid-cols-2">
+      {TEAMS.map((t) => {
+        const entrada = ruleta[t.id];
+        if (!entrada) return null;
+        return (
+          <RuletaTurnoCard
+            key={t.id}
+            team={t}
+            segmentos={segmentos}
+            entrada={entrada}
+            enTurno={turno === t.id}
+            yaResuelto={(parados ?? []).includes(t.id)}
+          />
+        );
+      })}
     </div>
   );
 }

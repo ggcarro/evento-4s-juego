@@ -345,30 +345,18 @@ function PruebaForm({
 
       <TipoEspecifico campos={campos} setCampos={setCampos} />
 
-      <div className="grid grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
-          {campos.tipo === "subasta" ? "Premio" : "Puntos base"}
-          <input
-            type="number"
-            value={campos.puntos_base}
-            onChange={(e) =>
-              setCampos((c) => ({ ...c, puntos_base: Number(e.target.value) }))
-            }
-            className="rounded-lg border border-zinc-300 p-2 text-sm text-zinc-900"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
-          Duración (segundos)
-          <input
-            type="number"
-            value={campos.duracion_segundos}
-            onChange={(e) =>
-              setCampos((c) => ({ ...c, duracion_segundos: Number(e.target.value) }))
-            }
-            className="rounded-lg border border-zinc-300 p-2 text-sm text-zinc-900"
-          />
-        </label>
-      </div>
+      <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600">
+        {campos.tipo === "subasta" ? "Premio" : "Puntos base"}
+        <input
+          type="number"
+          value={campos.puntos_base}
+          onChange={(e) => setCampos((c) => ({ ...c, puntos_base: Number(e.target.value) }))}
+          className="w-32 rounded-lg border border-zinc-300 p-2 text-sm text-zinc-900"
+        />
+      </label>
+      <p className="text-xs text-zinc-400">
+        La duración de la pregunta es global, se ajusta en el panel de control.
+      </p>
 
       <div className="flex items-center justify-between pt-2">
         <button

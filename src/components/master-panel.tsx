@@ -10,10 +10,18 @@ import {
   showLeaderboardAction,
   resetToLobby,
   reiniciarPartida,
+  saltarTurnoRuleta,
+  actualizarDuracionGlobal,
 } from "@/app/master/actions";
 import { useGameChannel } from "@/lib/use-game-channel";
+import { Countdown } from "@/components/countdown";
 import type { GameStatePublico } from "@/lib/game-types";
 import { TEAMS } from "@/lib/teams";
+
+// Coinciden con DURACION_GLOBAL_MIN/MAX en lib/game-state.ts (ese archivo es
+// "server-only" y no se puede importar desde un componente cliente).
+const DURACION_MIN = 5;
+const DURACION_MAX = 20;
 
 type PruebaResumen = {
   id: string;
@@ -35,9 +43,11 @@ const MECANICA_LABEL: Record<string, string> = {
 export function MasterPanel({
   pruebas,
   initialState,
+  initialDuracionGlobal,
 }: {
   pruebas: PruebaResumen[];
   initialState: GameStatePublico;
+  initialDuracionGlobal: number;
 }) {
   const [state, setState] = useState(initialState);
   const [pending, startTransition] = useTransition();
@@ -63,8 +73,17 @@ export function MasterPanel({
           <span className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
             {state.fase}
           </span>
+          {state.ends_at && (
+            <Countdown key={state.ends_at} endsAt={state.ends_at} className="text-sm font-semibold text-zinc-600" />
+          )}
         </div>
       </div>
+
+      <DuracionGlobalControl initial={initialDuracionGlobal} />
+
+      {state.fase === "ruleta" && (
+        <RuletaTurnoInfo turno={state.ruleta_turno} parados={state.ruleta_parados} />
+      )}
 
       <div className="flex flex-wrap gap-2">
         <button
@@ -177,6 +196,75 @@ export function MasterPanel({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function DuracionGlobalControl({ initial }: { initial: number }) {
+  const [valor, setValor] = useState(initial);
+  const [guardado, setGuardado] = useState(true);
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-2.5">
+      <label className="text-sm font-medium text-zinc-600" htmlFor="duracion-global">
+        Duración por pregunta
+      </label>
+      <input
+        id="duracion-global"
+        type="number"
+        min={DURACION_MIN}
+        max={DURACION_MAX}
+        value={valor}
+        onChange={(e) => {
+          setValor(Number(e.target.value));
+          setGuardado(false);
+        }}
+        className="w-16 rounded-lg border border-zinc-300 p-1.5 text-sm text-zinc-900"
+      />
+      <span className="text-xs text-zinc-400">s (máx. {DURACION_MAX})</span>
+      <button
+        type="button"
+        disabled={pending || guardado}
+        onClick={() =>
+          startTransition(async () => {
+            const clamped = await actualizarDuracionGlobal(valor);
+            setValor(clamped);
+            setGuardado(true);
+          })
+        }
+        className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-30"
+      >
+        {pending ? "Guardando..." : "Guardar"}
+      </button>
+    </div>
+  );
+}
+
+function RuletaTurnoInfo({
+  turno,
+  parados,
+}: {
+  turno: GameStatePublico["ruleta_turno"];
+  parados: GameStatePublico["ruleta_parados"];
+}) {
+  const [pending, startTransition] = useTransition();
+  const equipo = TEAMS.find((t) => t.id === turno);
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
+      <p className="text-sm font-medium text-amber-900">
+        🎡 Le toca a {equipo?.icon} {equipo?.name ?? "—"} · ya han parado: {(parados ?? []).length}
+      </p>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => startTransition(() => saltarTurnoRuleta())}
+        className="shrink-0 rounded-lg border border-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-800 disabled:opacity-30"
+        title="Por si el representante no responde"
+      >
+        Saltar turno
+      </button>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Dificultad, Fase, Mecanica, PruebaTipo } from "@/lib/supabase/types";
+import type { Dificultad, Fase, Mecanica, PruebaTipo, TeamId } from "@/lib/supabase/types";
 
 // Forma pública de una prueba: lo necesario para RENDERIZARLA, nunca la
 // solución. Se manda tal cual por Realtime Broadcast y por el fetch inicial.
@@ -39,6 +39,11 @@ export type GameStatePublico = {
   solucion: Record<string, unknown> | null;
   elegidos: Record<string, ElegidoInfo> | null;
   ruleta: RuletaEstado | null;
+  // Ceremonia de ruleta por turnos: a qué equipo le toca girar/parar ahora
+  // mismo, y qué equipos ya han parado (en orden). Solo relevantes durante
+  // fase === "ruleta".
+  ruleta_turno: TeamId | null;
+  ruleta_parados: TeamId[] | null;
   leaderboard: LeaderboardEntry[] | null;
 };
 

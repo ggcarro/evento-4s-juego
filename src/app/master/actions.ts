@@ -5,8 +5,17 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMaster, setMasterCookie } from "@/lib/master-session";
 import { broadcastGameState } from "@/lib/realtime-server";
-import { computeLeaderboard, resolverElegidos } from "@/lib/game-state";
+import {
+  computeLeaderboard,
+  resolverElegidos,
+  obtenerDuracionGlobal,
+  avanzarTurnoRuleta,
+  paraFase,
+  DURACION_GLOBAL_MIN,
+  DURACION_GLOBAL_MAX,
+} from "@/lib/game-state";
 import { getTirafloneTotales, getVotosDetalle } from "@/app/juego/actions";
+import { TEAMS } from "@/lib/teams";
 import type { RuletaEstado, RuletaResultado } from "@/lib/game-types";
 import type { TeamId } from "@/lib/supabase/types";
 
@@ -89,7 +98,8 @@ export async function launchPrueba(pruebaId: string) {
   if (error || !prueba) throw new Error("Prueba no encontrada");
 
   if (prueba.tipo === "subasta") {
-    const endsAt = new Date(Date.now() + prueba.duracion_segundos * 1000).toISOString();
+    const duracionSubasta = await obtenerDuracionGlobal(admin);
+    const endsAt = new Date(Date.now() + duracionSubasta * 1000).toISOString();
     await admin
       .from("game_state")
       .update({
@@ -109,6 +119,8 @@ export async function launchPrueba(pruebaId: string) {
       solucion: null,
       elegidos: null,
       ruleta: null,
+      ruleta_turno: null,
+      ruleta_parados: null,
       leaderboard: null,
     });
     revalidatePath("/master");
@@ -136,6 +148,8 @@ export async function launchPrueba(pruebaId: string) {
       solucion: null,
       elegidos: null,
       ruleta: null,
+      ruleta_turno: null,
+      ruleta_parados: null,
       leaderboard: null,
     });
     revalidatePath("/master");
@@ -145,27 +159,40 @@ export async function launchPrueba(pruebaId: string) {
   if (prueba.mecanica === "ruleta") {
     const segmentos = (prueba.config.ruleta_segmentos as RuletaResultado[] | undefined) ?? [];
     const ruleta = await girarRuleta(admin, segmentos);
-    const endsAt = new Date(Date.now() + prueba.duracion_segundos * 1000).toISOString();
+    // Mismo criterio de orden que avanzarTurnoRuleta (orden de TEAMS), para
+    // que la secuencia de equipos sea predecible en vez de depender del
+    // orden arbitrario en que vinieron las filas de la consulta.
+    const primerTurno = (TEAMS.map((t) => t.id).find((id) => id in ruleta) as TeamId | undefined) ?? null;
+
+    if (!primerTurno) {
+      // Ningún equipo tiene jugadores todavía: no hay a quién darle un
+      // turno, así que ni empezamos la ceremonia.
+      throw new Error("No hay jugadores en ningún equipo para girar la ruleta.");
+    }
 
     await admin
       .from("game_state")
       .update({
         prueba_actual_id: prueba.id,
-        fase: "activa",
-        ends_at: endsAt,
+        fase: "ruleta",
+        ends_at: null,
         elegidos: null,
         ruleta,
+        ruleta_turno: primerTurno,
+        ruleta_parados: [],
         updated_at: new Date().toISOString(),
       })
       .eq("id", true);
 
     await broadcastGameState({
-      fase: "activa",
-      prueba,
-      ends_at: endsAt,
+      fase: "ruleta",
+      prueba: paraFase(prueba, "ruleta"),
+      ends_at: null,
       solucion: null,
       elegidos: null,
       ruleta,
+      ruleta_turno: primerTurno,
+      ruleta_parados: [],
       leaderboard: null,
     });
     revalidatePath("/master");
@@ -177,7 +204,8 @@ export async function launchPrueba(pruebaId: string) {
       ? await elegirPortavoces(admin)
       : null;
 
-  const endsAt = new Date(Date.now() + prueba.duracion_segundos * 1000).toISOString();
+  const duracion = await obtenerDuracionGlobal(admin);
+  const endsAt = new Date(Date.now() + duracion * 1000).toISOString();
 
   await admin
     .from("game_state")
@@ -198,6 +226,8 @@ export async function launchPrueba(pruebaId: string) {
     solucion: null,
     elegidos: null,
     ruleta: null,
+    ruleta_turno: null,
+    ruleta_parados: null,
     leaderboard: null,
   });
 
@@ -221,7 +251,8 @@ export async function cerrarApuestas() {
     .single();
   if (error || !prueba) throw new Error("Prueba no encontrada");
 
-  const endsAt = new Date(Date.now() + prueba.duracion_segundos * 1000).toISOString();
+  const duracion = await obtenerDuracionGlobal(admin);
+  const endsAt = new Date(Date.now() + duracion * 1000).toISOString();
 
   await admin
     .from("game_state")
@@ -235,6 +266,8 @@ export async function cerrarApuestas() {
     solucion: null,
     elegidos: null,
     ruleta: null,
+    ruleta_turno: null,
+    ruleta_parados: null,
     leaderboard: null,
   });
 
@@ -313,6 +346,8 @@ export async function cerrarSubasta() {
     solucion: { subasta: resultado, pujas: pujasPorEquipo },
     elegidos: null,
     ruleta: null,
+    ruleta_turno: null,
+    ruleta_parados: null,
     leaderboard: null,
   });
 
@@ -502,6 +537,8 @@ export async function revealCurrent() {
     solucion: solucionParaMostrar,
     elegidos: await resolverElegidos(admin, state.elegidos),
     ruleta: (state.ruleta as RuletaEstado | null) ?? null,
+    ruleta_turno: null,
+    ruleta_parados: null,
     leaderboard: null,
   });
 
@@ -522,6 +559,8 @@ export async function showLeaderboardAction() {
       ends_at: null,
       elegidos: null,
       ruleta: null,
+      ruleta_turno: null,
+      ruleta_parados: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", true);
@@ -533,6 +572,8 @@ export async function showLeaderboardAction() {
     solucion: null,
     elegidos: null,
     ruleta: null,
+    ruleta_turno: null,
+    ruleta_parados: null,
     leaderboard,
   });
 
@@ -551,6 +592,8 @@ export async function resetToLobby() {
       ends_at: null,
       elegidos: null,
       ruleta: null,
+      ruleta_turno: null,
+      ruleta_parados: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", true);
@@ -562,6 +605,8 @@ export async function resetToLobby() {
     solucion: null,
     elegidos: null,
     ruleta: null,
+    ruleta_turno: null,
+    ruleta_parados: null,
     leaderboard: null,
   });
 
@@ -591,6 +636,8 @@ export async function reiniciarPartida() {
       ends_at: null,
       elegidos: null,
       ruleta: null,
+      ruleta_turno: null,
+      ruleta_parados: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", true);
@@ -602,8 +649,39 @@ export async function reiniciarPartida() {
     solucion: null,
     elegidos: null,
     ruleta: null,
+    ruleta_turno: null,
+    ruleta_parados: null,
     leaderboard: null,
   });
 
   revalidatePath("/master");
+}
+
+// Por si el representante de turno no responde (móvil apagado, distraído...):
+// el master fuerza el mismo avance que produciría su clic en "Parar".
+export async function saltarTurnoRuleta() {
+  await requireMaster();
+  const admin = createAdminClient();
+  await avanzarTurnoRuleta(admin);
+  revalidatePath("/master");
+}
+
+// Duración (en segundos) que se usa para TODAS las preguntas al lanzarlas,
+// en vez de un valor por pregunta. Máximo 20s para mantener el ritmo del
+// evento.
+export async function actualizarDuracionGlobal(segundos: number) {
+  await requireMaster();
+  const admin = createAdminClient();
+
+  const clamped = Math.round(
+    Math.min(DURACION_GLOBAL_MAX, Math.max(DURACION_GLOBAL_MIN, segundos))
+  );
+
+  await admin
+    .from("game_state")
+    .update({ duracion_global_segundos: clamped, updated_at: new Date().toISOString() })
+    .eq("id", true);
+
+  revalidatePath("/master");
+  return clamped;
 }

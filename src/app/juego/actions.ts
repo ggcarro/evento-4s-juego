@@ -2,6 +2,8 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedPlayer } from "@/lib/session";
+import { avanzarTurnoRuleta } from "@/lib/game-state";
+import type { RuletaEstado } from "@/lib/game-types";
 
 export type SubmitAnswerResult = { ok: boolean; message: string };
 
@@ -353,4 +355,33 @@ export async function soyElElegido(): Promise<boolean> {
 
   if (!state || state.fase !== "activa" || !state.elegidos) return false;
   return state.elegidos[player.team_id] === player.id;
+}
+
+// El representante de turno para la ronda de ruleta pulsa "Parar": valida
+// que de verdad le toca a su equipo y que él es el representante elegido,
+// y avanza la ceremonia (al siguiente equipo, o a la pregunta real si ya
+// pararon los 4).
+export async function pararRuletaEquipo(): Promise<{ ok: boolean; message: string }> {
+  const player = await getAuthenticatedPlayer();
+  if (!player) return { ok: false, message: "Tu sesión no es válida." };
+
+  const admin = createAdminClient();
+  const { data: state } = await admin
+    .from("game_state")
+    .select("fase, ruleta, ruleta_turno")
+    .single();
+
+  if (!state || state.fase !== "ruleta") {
+    return { ok: false, message: "No hay ninguna ruleta girando." };
+  }
+  if (state.ruleta_turno !== player.team_id) {
+    return { ok: false, message: "Todavía no es el turno de tu equipo." };
+  }
+  const ruleta = (state.ruleta ?? {}) as RuletaEstado;
+  if (ruleta[player.team_id]?.representante.id !== player.id) {
+    return { ok: false, message: "No eres el representante de tu equipo." };
+  }
+
+  await avanzarTurnoRuleta(admin);
+  return { ok: true, message: "¡Parada!" };
 }
