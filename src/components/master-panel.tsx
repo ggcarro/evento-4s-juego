@@ -8,6 +8,7 @@ import {
   revealCurrent,
   showLeaderboardAction,
   resetToLobby,
+  reiniciarPartida,
 } from "@/app/master/actions";
 import { useGameChannel } from "@/lib/use-game-channel";
 import type { GameStatePublico } from "@/lib/game-types";
@@ -97,6 +98,8 @@ export function MasterPanel({
         </button>
       </div>
 
+      <ReiniciarPartidaBoton />
+
       {state.fase === "leaderboard" && state.leaderboard && (
         <div className="rounded-xl border border-zinc-200 bg-white p-4">
           <p className="mb-2 text-sm font-medium text-zinc-500">Leaderboard actual</p>
@@ -150,6 +153,40 @@ export function MasterPanel({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function ReiniciarPartidaBoton() {
+  const [confirmando, setConfirmando] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+      <div>
+        <p className="text-sm font-semibold text-red-900">Reiniciar partida</p>
+        <p className="text-xs text-red-700">
+          Borra todos los jugadores y su progreso (útil tras una demo). Las preguntas no se tocan.
+        </p>
+      </div>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          if (!confirmando) {
+            setConfirmando(true);
+            setTimeout(() => setConfirmando(false), 4000);
+            return;
+          }
+          setConfirmando(false);
+          startTransition(() => reiniciarPartida());
+        }}
+        className={`shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-30 ${
+          confirmando ? "bg-red-800" : "bg-red-600"
+        }`}
+      >
+        {pending ? "Reiniciando..." : confirmando ? "¿Seguro? Pulsa otra vez" : "Reiniciar todo"}
+      </button>
     </div>
   );
 }

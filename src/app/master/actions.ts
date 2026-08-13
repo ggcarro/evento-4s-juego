@@ -379,3 +379,41 @@ export async function resetToLobby() {
 
   revalidatePath("/master");
 }
+
+// Borra TODOS los jugadores y todo su progreso (respuestas, apuestas,
+// pujas, pulsaciones de tira y afloja) y vuelve al lobby. Las pruebas
+// (preguntas) y los equipos no se tocan. Pensado para limpiar una demo
+// antes del evento real: cualquier jugador con la sesión abierta se
+// desconecta solo la próxima vez que interactúe, porque su fila ya no existe.
+export async function reiniciarPartida() {
+  await requireMaster();
+  const admin = createAdminClient();
+
+  await admin.from("respuestas").delete().not("id", "is", null);
+  await admin.from("apuestas").delete().not("id", "is", null);
+  await admin.from("pujas").delete().not("prueba_id", "is", null);
+  await admin.from("tira_afloja_taps").delete().not("player_id", "is", null);
+  await admin.from("players").delete().not("id", "is", null);
+
+  await admin
+    .from("game_state")
+    .update({
+      fase: "lobby",
+      prueba_actual_id: null,
+      ends_at: null,
+      elegidos: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", true);
+
+  await broadcastGameState({
+    fase: "lobby",
+    prueba: null,
+    ends_at: null,
+    solucion: null,
+    elegidos: null,
+    leaderboard: null,
+  });
+
+  revalidatePath("/master");
+}
