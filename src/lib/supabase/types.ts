@@ -10,7 +10,8 @@ export type PruebaTipo =
   | "doble_o_nada"
   | "subasta"
   | "duelo"
-  | "portavoz_secreto";
+  | "portavoz_secreto"
+  | "titulo";
 
 export type Dificultad = "facil" | "media" | "dificil";
 
@@ -23,7 +24,7 @@ export type Fase =
   | "leaderboard"
   | "fin";
 
-export type Mecanica = "portavoz_secreto" | "doble_aleatorio" | "apuesta_ciega";
+export type Mecanica = "portavoz_secreto" | "doble_aleatorio" | "apuesta_ciega" | "ruleta";
 
 export interface Database {
   public: {
@@ -119,6 +120,7 @@ export interface Database {
           fase: Fase;
           ends_at: string | null;
           elegidos: Record<string, string> | null;
+          ruleta: Record<string, unknown> | null;
           updated_at: string;
         };
         Insert: {
@@ -127,6 +129,7 @@ export interface Database {
           fase?: Fase;
           ends_at?: string | null;
           elegidos?: Record<string, string> | null;
+          ruleta?: Record<string, unknown> | null;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["game_state"]["Insert"]>;

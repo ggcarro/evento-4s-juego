@@ -29,6 +29,7 @@ const MECANICA_LABEL: Record<string, string> = {
   portavoz_secreto: "🎭 portavoz secreto",
   doble_aleatorio: "🎲 doble aleatorio",
   apuesta_ciega: "💰 apuesta ciega",
+  ruleta: "🎡 ruleta",
 };
 
 export function MasterPanel({
@@ -42,6 +43,11 @@ export function MasterPanel({
   const [pending, startTransition] = useTransition();
 
   useGameChannel(setState);
+
+  const ordenadas = [...pruebas].sort((a, b) => a.orden - b.orden);
+  const ordenActual = state.prueba?.orden;
+  const siguiente =
+    ordenadas.find((p) => ordenActual === undefined || p.orden > ordenActual) ?? null;
 
   return (
     <div className="flex flex-1 flex-col gap-6 bg-zinc-50 px-6 py-10">
@@ -61,6 +67,15 @@ export function MasterPanel({
       </div>
 
       <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={pending || !siguiente}
+          onClick={() => siguiente && startTransition(() => launchPrueba(siguiente.id))}
+          className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-30"
+          title={siguiente ? `#${siguiente.orden} · ${siguiente.enunciado}` : "No quedan más preguntas"}
+        >
+          Siguiente ▶ {siguiente ? `#${siguiente.orden}` : ""}
+        </button>
         {state.fase === "apostando" && (
           <button
             type="button"

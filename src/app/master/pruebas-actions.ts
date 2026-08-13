@@ -22,6 +22,45 @@ export type PruebaCampos = {
   duracion_segundos: number;
 };
 
+// Crea una pregunta en blanco (quiz con 2 opciones vacías) al final de la
+// lista, lista para rellenar en el propio editor.
+export async function crearPrueba(): Promise<PruebaCampos & { id: string; orden: number }> {
+  await requireMaster();
+  const admin = createAdminClient();
+
+  const { data: ultima } = await admin
+    .from("pruebas")
+    .select("orden")
+    .order("orden", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const siguienteOrden = (ultima?.orden ?? 0) + 1;
+
+  const campos: PruebaCampos = {
+    tipo: "quiz",
+    equipo_referido: null,
+    dificultad: "media",
+    mecanica: null,
+    enunciado: "",
+    config: { opciones: ["", ""] },
+    solucion: { indice_correcto: 0 },
+    puntos_base: 100,
+    duracion_segundos: 20,
+  };
+
+  const { data, error } = await admin
+    .from("pruebas")
+    .insert({ ...campos, orden: siguienteOrden })
+    .select("id, orden")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "No se pudo crear la pregunta");
+
+  revalidatePath("/master/pruebas");
+  revalidatePath("/master");
+
+  return { ...campos, id: data.id, orden: data.orden };
+}
+
 export async function actualizarPrueba(id: string, campos: Partial<PruebaCampos>) {
   await requireMaster();
   const admin = createAdminClient();
@@ -64,4 +103,31 @@ export async function borrarPrueba(id: string) {
 
   revalidatePath("/master/pruebas");
   revalidatePath("/master");
+}
+
+// Devuelve una URL de subida firmada para que el navegador suba el vídeo
+// DIRECTAMENTE a Supabase Storage, sin pasar por nuestro servidor (Vercel
+// rechaza cuerpos de más de ~4.5MB en las funciones, así que subirlo a
+// través de una Server Action no funcionaría con vídeos reales).
+export async function prepararSubidaVideo(
+  nombreOriginal: string
+): Promise<{ path: string; token: string } | { error: string }> {
+  await requireMaster();
+  const admin = createAdminClient();
+
+  const extension = nombreOriginal.split(".").pop() ?? "mp4";
+  const path = `${crypto.randomUUID()}.${extension}`;
+
+  const { data, error } = await admin.storage.from("media").createSignedUploadUrl(path);
+  if (error || !data) {
+    return { error: error?.message ?? "No se pudo preparar la subida." };
+  }
+
+  return { path: data.path, token: data.token };
+}
+
+export async function urlPublicaVideo(path: string): Promise<string> {
+  const admin = createAdminClient();
+  const { data } = admin.storage.from("media").getPublicUrl(path);
+  return data.publicUrl;
 }

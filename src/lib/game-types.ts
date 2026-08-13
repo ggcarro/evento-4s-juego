@@ -25,12 +25,20 @@ export type LeaderboardEntry = {
 // equipo esta ronda; nunca se manda durante la fase activa).
 export type ElegidoInfo = { id: string; name: string };
 
+// Ruleta: a diferencia de `elegidos` (secreto hasta revelar), esto es
+// público desde el momento en que se lanza la prueba: representante
+// iluminado por equipo + la casilla que le tocó en el giro.
+export type RuletaResultado = { tipo: "puntos"; valor: number } | { tipo: "convocatoria" };
+export type RuletaEquipo = { representante: ElegidoInfo; resultado: RuletaResultado };
+export type RuletaEstado = Record<string, RuletaEquipo>;
+
 export type GameStatePublico = {
   fase: Fase;
   prueba: PruebaPublica | null;
   ends_at: string | null;
   solucion: Record<string, unknown> | null;
   elegidos: Record<string, ElegidoInfo> | null;
+  ruleta: RuletaEstado | null;
   leaderboard: LeaderboardEntry[] | null;
 };
 

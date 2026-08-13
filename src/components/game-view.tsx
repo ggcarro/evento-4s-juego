@@ -10,6 +10,7 @@ import {
   getMiPuntuacion,
   submitVoto,
   getVotosDetalle,
+  soyElElegido,
 } from "@/app/juego/actions";
 import { useGameChannel } from "@/lib/use-game-channel";
 import type { GameStatePublico } from "@/lib/game-types";
@@ -99,8 +100,15 @@ export function GameView({
       {state.fase === "activa" && state.prueba && (
         <div className="flex w-full max-w-sm flex-1 flex-col items-center justify-center gap-5">
           <MecanicaBadge mecanica={state.prueba.mecanica} />
+          <SoyElElegidoBanner
+            key={`${state.prueba.id}-${state.ends_at}`}
+            mecanica={state.prueba.mecanica}
+          />
+          <RuletaBanner ruleta={state.ruleta} teamId={player.team_id} color={team?.color} />
 
-          {state.prueba.tipo === "tira_afloja" ? (
+          {state.prueba.tipo === "titulo" ? (
+            <h1 className="text-3xl font-black text-zinc-900">{state.prueba.enunciado}</h1>
+          ) : state.prueba.tipo === "tira_afloja" ? (
             <TiraAflojaInput
               key={state.prueba.id}
               pruebaId={state.prueba.id}
@@ -135,6 +143,11 @@ export function GameView({
           <h1 className="text-xl font-bold text-zinc-900">{state.prueba.enunciado}</h1>
           <RespuestaCorrecta prueba={state.prueba} solucion={state.solucion} />
           <ElegidosReveal mecanica={state.prueba.mecanica} elegidos={state.elegidos} />
+          <RuletaResultadoReveal
+            ruleta={state.ruleta}
+            resumen={state.solucion?.ruleta_resumen as Record<string, { mayoria: boolean }> | undefined}
+            teamId={player.team_id}
+          />
           {answered && (
             <p className="text-sm font-medium text-zinc-500">Tu respuesta ya quedó registrada.</p>
           )}
@@ -174,11 +187,97 @@ function MecanicaBadge({ mecanica }: { mecanica: NonNullable<GameStatePublico["p
         ? "🎲 Alguien de tu equipo puede doblar los puntos esta ronda"
         : mecanica === "apuesta_ciega"
           ? "💰 Tu apuesta de esta ronda sigue en juego"
-          : null;
+          : mecanica === "ruleta"
+            ? "🎡 Ruleta: representante y bote en juego por equipo"
+            : null;
   if (!texto) return null;
   return (
     <p className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
       {texto}
+    </p>
+  );
+}
+
+function SoyElElegidoBanner({
+  mecanica,
+}: {
+  mecanica: NonNullable<GameStatePublico["prueba"]>["mecanica"];
+}) {
+  const [soy, setSoy] = useState(false);
+
+  useEffect(() => {
+    if (mecanica !== "portavoz_secreto" && mecanica !== "doble_aleatorio") return;
+    soyElElegido().then(setSoy);
+  }, [mecanica]);
+
+  if (!soy) return null;
+  const texto =
+    mecanica === "portavoz_secreto"
+      ? "🤫 Eres el portavoz secreto de tu equipo: solo cuenta TU respuesta."
+      : "🎲 ¡Eres tú quien dobla los puntos esta ronda!";
+
+  return (
+    <p className="w-full rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-center text-sm font-semibold text-green-800">
+      {texto}
+    </p>
+  );
+}
+
+function RuletaBanner({
+  ruleta,
+  teamId,
+  color,
+}: {
+  ruleta: GameStatePublico["ruleta"];
+  teamId: TeamId;
+  color?: string;
+}) {
+  const entrada = ruleta?.[teamId];
+  if (!entrada) return null;
+  return (
+    <div
+      className="w-full rounded-lg border-2 px-3 py-2 text-center text-sm font-semibold"
+      style={{ borderColor: color, backgroundColor: `${color}15`, color }}
+    >
+      <p>🎡 Representante: {entrada.representante.name}</p>
+      <p>
+        {entrada.resultado.tipo === "convocatoria"
+          ? "☠️ 4ª convocatoria: si os toca, perdéis TODO el marcador"
+          : `🎯 En juego: +${entrada.resultado.valor} pts si acierta la mayoría`}
+      </p>
+    </div>
+  );
+}
+
+function RuletaResultadoReveal({
+  ruleta,
+  resumen,
+  teamId,
+}: {
+  ruleta: GameStatePublico["ruleta"];
+  resumen: Record<string, { mayoria: boolean }> | undefined;
+  teamId: TeamId;
+}) {
+  const entrada = ruleta?.[teamId];
+  if (!entrada) return null;
+  const mayoria = resumen?.[teamId]?.mayoria ?? false;
+
+  if (entrada.resultado.tipo === "convocatoria") {
+    return (
+      <p className="w-full rounded-lg bg-red-100 px-4 py-2.5 text-sm font-semibold text-red-800">
+        ☠️ Os tocó la 4ª convocatoria: vuestro marcador se ha ido a 0.
+      </p>
+    );
+  }
+  return (
+    <p
+      className={`w-full rounded-lg px-4 py-2.5 text-sm font-semibold ${
+        mayoria ? "bg-green-100 text-green-800" : "bg-zinc-100 text-zinc-600"
+      }`}
+    >
+      {mayoria
+        ? `🎉 La mayoría acertó: +${entrada.resultado.valor} pts para el equipo.`
+        : `La mayoría falló, no os lleváis el bote de ${entrada.resultado.valor} pts.`}
     </p>
   );
 }
@@ -423,19 +522,32 @@ function PruebaInput({
 }) {
   if (prueba.tipo === "quiz") {
     const opciones = (prueba.config.opciones as string[] | undefined) ?? [];
+    const videoUrl = prueba.config.video_url as string | undefined;
     return (
-      <div className="flex w-full flex-col gap-2">
-        {opciones.map((opcion, i) => (
-          <button
-            key={i}
-            type="button"
-            disabled={disabled}
-            onClick={() => onSubmit({ indice: i })}
-            className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-800 hover:border-zinc-900 disabled:opacity-40"
-          >
-            {opcion}
-          </button>
-        ))}
+      <div className="flex w-full flex-col gap-3">
+        {videoUrl && (
+          <video
+            src={videoUrl}
+            autoPlay
+            muted
+            loop
+            playsInline
+            className="w-full rounded-lg border border-zinc-300"
+          />
+        )}
+        <div className="flex w-full flex-col gap-2">
+          {opciones.map((opcion, i) => (
+            <button
+              key={i}
+              type="button"
+              disabled={disabled}
+              onClick={() => onSubmit({ indice: i })}
+              className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-800 hover:border-zinc-900 disabled:opacity-40"
+            >
+              {opcion}
+            </button>
+          ))}
+        </div>
       </div>
     );
   }

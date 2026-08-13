@@ -337,3 +337,20 @@ export async function getVotosDetalle(pruebaId: string): Promise<VotoDetalle[]> 
     };
   });
 }
+
+// Solo le dice AL PROPIO jugador si es el elegido de su equipo esta ronda
+// (portavoz_secreto / doble_aleatorio). Nunca se manda por Broadcast, así
+// que nadie más puede saberlo mirando el tráfico de red de otro jugador.
+export async function soyElElegido(): Promise<boolean> {
+  const player = await getAuthenticatedPlayer();
+  if (!player) return false;
+
+  const admin = createAdminClient();
+  const { data: state } = await admin
+    .from("game_state")
+    .select("fase, elegidos")
+    .single();
+
+  if (!state || state.fase !== "activa" || !state.elegidos) return false;
+  return state.elegidos[player.team_id] === player.id;
+}

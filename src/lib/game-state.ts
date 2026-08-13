@@ -1,6 +1,12 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { ElegidoInfo, GameStatePublico, LeaderboardEntry, PruebaPublica } from "@/lib/game-types";
+import type {
+  ElegidoInfo,
+  GameStatePublico,
+  LeaderboardEntry,
+  PruebaPublica,
+  RuletaEstado,
+} from "@/lib/game-types";
 import { TEAMS } from "@/lib/teams";
 
 // Convierte { team_id: player_id } en { team_id: { id, name } } para poder
@@ -74,6 +80,7 @@ export async function getPublicGameState(): Promise<GameStatePublico> {
     ends_at: null,
     solucion: null,
     elegidos: null,
+    ruleta: null,
     leaderboard: null,
   };
 
@@ -105,6 +112,7 @@ export async function getPublicGameState(): Promise<GameStatePublico> {
     ends_at: state.ends_at,
     solucion: state.fase === "revelada" ? solucion : null,
     elegidos: state.fase === "revelada" ? await resolverElegidos(admin, state.elegidos) : null,
+    ruleta: (state.ruleta as RuletaEstado | null) ?? null,
     leaderboard: null,
   };
 }

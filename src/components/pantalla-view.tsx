@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useGameChannel } from "@/lib/use-game-channel";
 import { getTirafloneTotales, getPujasActuales, getVotosDetalle } from "@/app/juego/actions";
-import type { GameStatePublico } from "@/lib/game-types";
+import type { GameStatePublico, RuletaResultado } from "@/lib/game-types";
 import { TEAMS } from "@/lib/teams";
 
 export function PantallaView({ initialState }: { initialState: GameStatePublico }) {
@@ -36,7 +36,33 @@ export function PantallaView({ initialState }: { initialState: GameStatePublico 
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-10 px-16 text-center">
         <MecanicaBanner mecanica={state.prueba.mecanica} />
+
+        {state.prueba.mecanica === "ruleta" && (
+          <RuletaPanel
+            key={`${state.prueba.id}-${state.ends_at}`}
+            ruleta={state.ruleta}
+            revelado={state.fase === "revelada"}
+            resumen={
+              state.fase === "revelada"
+                ? (state.solucion?.ruleta_resumen as Record<string, { mayoria: boolean }> | undefined)
+                : undefined
+            }
+          />
+        )}
+
         <h1 className="text-5xl font-black leading-tight">{state.prueba.enunciado}</h1>
+
+        {state.prueba.tipo === "quiz" &&
+          (state.prueba.config.video_url as string | undefined) && (
+            <video
+              src={state.prueba.config.video_url as string}
+              autoPlay
+              muted
+              loop
+              playsInline
+              className="max-h-[40vh] rounded-2xl border border-zinc-700"
+            />
+          )}
 
         {state.prueba.tipo === "quiz" && (
           <div className="grid grid-cols-2 gap-6 text-3xl font-bold">
@@ -175,9 +201,123 @@ function MecanicaBanner({ mecanica }: { mecanica: NonNullable<GameStatePublico["
         ? "🎲 Doble aleatorio en juego"
         : mecanica === "apuesta_ciega"
           ? "💰 Apuestas ciegas en juego"
-          : null;
+          : mecanica === "ruleta"
+            ? "🎡 Ruleta en juego"
+            : null;
   if (!texto) return null;
   return <p className="text-lg font-bold uppercase tracking-wide text-amber-400">{texto}</p>;
+}
+
+function RuletaPanel({
+  ruleta,
+  revelado,
+  resumen,
+}: {
+  ruleta: GameStatePublico["ruleta"];
+  revelado: boolean;
+  resumen?: Record<string, { mayoria: boolean }>;
+}) {
+  if (!ruleta) return null;
+  return (
+    <div className="grid w-full max-w-5xl grid-cols-2 gap-5 sm:grid-cols-4">
+      {TEAMS.map((t, i) => {
+        const entrada = ruleta[t.id];
+        if (!entrada) return null;
+        return (
+          <RuletaCard
+            key={t.id}
+            index={i}
+            color={t.color}
+            icon={t.icon}
+            name={t.name}
+            representante={entrada.representante.name}
+            resultado={entrada.resultado}
+            revelado={revelado}
+            mayoria={resumen?.[t.id]?.mayoria}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function RuletaCard({
+  index,
+  color,
+  icon,
+  name,
+  representante,
+  resultado,
+  revelado,
+  mayoria,
+}: {
+  index: number;
+  color: string;
+  icon: string;
+  name: string;
+  representante: string;
+  resultado: RuletaResultado;
+  revelado: boolean;
+  mayoria?: boolean;
+}) {
+  const [girado, setGirado] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setGirado(true), 700 + index * 350);
+    return () => clearTimeout(t);
+  }, [index]);
+
+  return (
+    <div
+      className="flex flex-col items-center gap-3 rounded-2xl border-2 px-4 py-5 transition-colors duration-500"
+      style={{ borderColor: color, backgroundColor: girado ? `${color}1a` : "transparent" }}
+    >
+      <span className="text-sm font-bold uppercase tracking-wide" style={{ color }}>
+        {icon} {name}
+      </span>
+
+      <span
+        className="text-4xl"
+        style={{
+          display: "inline-block",
+          transition: "transform 1200ms cubic-bezier(0.33, 1, 0.68, 1)",
+          transform: girado ? "rotate(1080deg)" : "rotate(0deg)",
+        }}
+      >
+        🎡
+      </span>
+
+      <div
+        className={`flex flex-col items-center gap-1 transition-opacity duration-500 ${
+          girado ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        <p className="text-lg font-black" style={{ color }}>
+          {representante}
+        </p>
+        <p className="text-sm font-bold text-zinc-100">
+          {resultado.tipo === "convocatoria" ? "☠️ 4ª convocatoria" : `🎯 +${resultado.valor} pts`}
+        </p>
+        {revelado && (
+          <p
+            className={`text-xs font-semibold ${
+              resultado.tipo === "convocatoria"
+                ? "text-red-400"
+                : mayoria
+                  ? "text-green-400"
+                  : "text-zinc-400"
+            }`}
+          >
+            {resultado.tipo === "convocatoria"
+              ? "Marcador a 0"
+              : mayoria
+                ? "¡Mayoría acertó! Bote conseguido"
+                : "Mayoría falló, sin bote"}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function ElegidosBanner({

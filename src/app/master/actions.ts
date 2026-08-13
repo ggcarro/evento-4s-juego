@@ -7,6 +7,8 @@ import { requireMaster, setMasterCookie } from "@/lib/master-session";
 import { broadcastGameState } from "@/lib/realtime-server";
 import { computeLeaderboard, resolverElegidos } from "@/lib/game-state";
 import { getTirafloneTotales, getVotosDetalle } from "@/app/juego/actions";
+import type { RuletaEstado, RuletaResultado } from "@/lib/game-types";
+import type { TeamId } from "@/lib/supabase/types";
 
 export type MasterLoginState = { error?: string };
 
@@ -48,6 +50,33 @@ async function elegirPortavoces(
   return elegidos;
 }
 
+// Ruleta: elige un representante por equipo (mismo criterio que
+// elegirPortavoces, pero aquí es público, no secreto) y gira, también por
+// equipo, una casilla al azar de config.ruleta_segmentos.
+function elegirResultadoRuleta(segmentos: RuletaResultado[]): RuletaResultado {
+  if (segmentos.length === 0) return { tipo: "puntos", valor: 100 };
+  return segmentos[Math.floor(Math.random() * segmentos.length)];
+}
+
+async function girarRuleta(
+  admin: ReturnType<typeof createAdminClient>,
+  segmentos: RuletaResultado[]
+): Promise<RuletaEstado> {
+  const representantes = await elegirPortavoces(admin);
+  const ids = Object.values(representantes);
+  const { data: jugadores } = await admin.from("players").select("id, name").in("id", ids);
+  const nombrePorId = new Map((jugadores ?? []).map((j) => [j.id, j.name]));
+
+  const estado: RuletaEstado = {};
+  for (const [teamId, playerId] of Object.entries(representantes)) {
+    estado[teamId] = {
+      representante: { id: playerId, name: nombrePorId.get(playerId) ?? "?" },
+      resultado: elegirResultadoRuleta(segmentos),
+    };
+  }
+  return estado;
+}
+
 export async function launchPrueba(pruebaId: string) {
   await requireMaster();
   const admin = createAdminClient();
@@ -68,6 +97,7 @@ export async function launchPrueba(pruebaId: string) {
         fase: "subastando",
         ends_at: endsAt,
         elegidos: null,
+        ruleta: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", true);
@@ -78,6 +108,7 @@ export async function launchPrueba(pruebaId: string) {
       ends_at: endsAt,
       solucion: null,
       elegidos: null,
+      ruleta: null,
       leaderboard: null,
     });
     revalidatePath("/master");
@@ -93,6 +124,7 @@ export async function launchPrueba(pruebaId: string) {
         fase: "apostando",
         ends_at: endsAt,
         elegidos: null,
+        ruleta: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", true);
@@ -103,6 +135,37 @@ export async function launchPrueba(pruebaId: string) {
       ends_at: endsAt,
       solucion: null,
       elegidos: null,
+      ruleta: null,
+      leaderboard: null,
+    });
+    revalidatePath("/master");
+    return;
+  }
+
+  if (prueba.mecanica === "ruleta") {
+    const segmentos = (prueba.config.ruleta_segmentos as RuletaResultado[] | undefined) ?? [];
+    const ruleta = await girarRuleta(admin, segmentos);
+    const endsAt = new Date(Date.now() + prueba.duracion_segundos * 1000).toISOString();
+
+    await admin
+      .from("game_state")
+      .update({
+        prueba_actual_id: prueba.id,
+        fase: "activa",
+        ends_at: endsAt,
+        elegidos: null,
+        ruleta,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", true);
+
+    await broadcastGameState({
+      fase: "activa",
+      prueba,
+      ends_at: endsAt,
+      solucion: null,
+      elegidos: null,
+      ruleta,
       leaderboard: null,
     });
     revalidatePath("/master");
@@ -123,6 +186,7 @@ export async function launchPrueba(pruebaId: string) {
       fase: "activa",
       ends_at: endsAt,
       elegidos,
+      ruleta: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", true);
@@ -133,6 +197,7 @@ export async function launchPrueba(pruebaId: string) {
     ends_at: endsAt,
     solucion: null,
     elegidos: null,
+    ruleta: null,
     leaderboard: null,
   });
 
@@ -169,6 +234,7 @@ export async function cerrarApuestas() {
     ends_at: endsAt,
     solucion: null,
     elegidos: null,
+    ruleta: null,
     leaderboard: null,
   });
 
@@ -246,6 +312,7 @@ export async function cerrarSubasta() {
     ends_at: null,
     solucion: { subasta: resultado, pujas: pujasPorEquipo },
     elegidos: null,
+    ruleta: null,
     leaderboard: null,
   });
 
@@ -258,7 +325,7 @@ export async function revealCurrent() {
 
   const { data: state } = await admin
     .from("game_state")
-    .select("prueba_actual_id, elegidos")
+    .select("prueba_actual_id, elegidos, ruleta")
     .single();
   if (!state?.prueba_actual_id) throw new Error("No hay prueba activa");
 
@@ -331,6 +398,89 @@ export async function revealCurrent() {
     }
   }
 
+  // Ruleta: cada equipo tenía un representante público + una casilla ya
+  // decidida al lanzar la prueba. Si la casilla es de puntos y la mayoría
+  // del equipo (entre quienes respondieron) acertó, se suma el bote a cada
+  // uno de ellos. Si es "convocatoria", el equipo entero pierde TODO su
+  // marcador acumulado, acierten o no — es incondicional a la casilla, no a
+  // la pregunta.
+  if (prueba.mecanica === "ruleta") {
+    const ruletaEstado = (state.ruleta ?? {}) as RuletaEstado;
+
+    const { data: respuestasRonda } = await admin
+      .from("respuestas")
+      .select("player_id, puntos, respuesta, players!inner(team_id, is_kicked)")
+      .eq("prueba_id", prueba.id);
+
+    const porEquipo = new Map<string, { player_id: string; puntos: number; respuesta: Record<string, unknown> }[]>();
+    for (const r of respuestasRonda ?? []) {
+      const player = r.players as unknown as { team_id: string; is_kicked: boolean };
+      if (player.is_kicked) continue;
+      const arr = porEquipo.get(player.team_id) ?? [];
+      arr.push({ player_id: r.player_id, puntos: r.puntos, respuesta: r.respuesta });
+      porEquipo.set(player.team_id, arr);
+    }
+
+    const resumenPorEquipo: Record<string, { mayoria: boolean }> = {};
+
+    for (const [teamId, entrada] of Object.entries(ruletaEstado)) {
+      const respuestasEquipo = porEquipo.get(teamId) ?? [];
+      const aciertos = respuestasEquipo.filter((r) => r.puntos > 0).length;
+      const mayoria = respuestasEquipo.length > 0 && aciertos > respuestasEquipo.length / 2;
+      resumenPorEquipo[teamId] = { mayoria };
+
+      if (entrada.resultado.tipo === "convocatoria") {
+        const { data: jugadoresEquipo } = await admin
+          .from("players")
+          .select("id")
+          .eq("team_id", teamId as TeamId)
+          .eq("is_kicked", false);
+        const ids = (jugadoresEquipo ?? []).map((j) => j.id);
+
+        if (ids.length > 0) {
+          const { data: historico } = await admin
+            .from("respuestas")
+            .select("player_id, prueba_id, respuesta, puntos")
+            .in("player_id", ids);
+
+          type FilaHistorica = { prueba_id: string; respuesta: Record<string, unknown>; puntos: number };
+          const porJugador = new Map<string, FilaHistorica[]>();
+          for (const r of historico ?? []) {
+            const arr = porJugador.get(r.player_id) ?? [];
+            arr.push(r);
+            porJugador.set(r.player_id, arr);
+          }
+
+          const filasWipe = ids.map((id) => {
+            const filasJugador = porJugador.get(id) ?? [];
+            const total = filasJugador.reduce((s, r) => s + r.puntos, 0);
+            const filaActual = filasJugador.find((r) => r.prueba_id === prueba.id);
+            return {
+              player_id: id,
+              prueba_id: prueba.id,
+              respuesta: filaActual?.respuesta ?? {},
+              puntos: (filaActual?.puntos ?? 0) - total,
+            };
+          });
+          await admin.from("respuestas").upsert(filasWipe, { onConflict: "player_id,prueba_id" });
+        }
+      } else if (mayoria) {
+        const bote = entrada.resultado.valor;
+        const filasBote = respuestasEquipo.map((r) => ({
+          player_id: r.player_id,
+          prueba_id: prueba.id,
+          respuesta: r.respuesta,
+          puntos: r.puntos + bote,
+        }));
+        if (filasBote.length > 0) {
+          await admin.from("respuestas").upsert(filasBote, { onConflict: "player_id,prueba_id" });
+        }
+      }
+    }
+
+    solucionParaMostrar = { ...prueba.solucion, ruleta_resumen: resumenPorEquipo };
+  }
+
   await admin
     .from("game_state")
     .update({ fase: "revelada", updated_at: new Date().toISOString() })
@@ -351,6 +501,7 @@ export async function revealCurrent() {
     ends_at: null,
     solucion: solucionParaMostrar,
     elegidos: await resolverElegidos(admin, state.elegidos),
+    ruleta: (state.ruleta as RuletaEstado | null) ?? null,
     leaderboard: null,
   });
 
@@ -370,6 +521,7 @@ export async function showLeaderboardAction() {
       prueba_actual_id: null,
       ends_at: null,
       elegidos: null,
+      ruleta: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", true);
@@ -380,6 +532,7 @@ export async function showLeaderboardAction() {
     ends_at: null,
     solucion: null,
     elegidos: null,
+    ruleta: null,
     leaderboard,
   });
 
@@ -397,6 +550,7 @@ export async function resetToLobby() {
       prueba_actual_id: null,
       ends_at: null,
       elegidos: null,
+      ruleta: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", true);
@@ -407,6 +561,7 @@ export async function resetToLobby() {
     ends_at: null,
     solucion: null,
     elegidos: null,
+    ruleta: null,
     leaderboard: null,
   });
 
@@ -435,6 +590,7 @@ export async function reiniciarPartida() {
       prueba_actual_id: null,
       ends_at: null,
       elegidos: null,
+      ruleta: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", true);
@@ -445,6 +601,7 @@ export async function reiniciarPartida() {
     ends_at: null,
     solucion: null,
     elegidos: null,
+    ruleta: null,
     leaderboard: null,
   });
 
