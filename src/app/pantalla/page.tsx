@@ -1,10 +1,12 @@
-export default function PantallaPage() {
+import { getPublicGameState } from "@/lib/game-state";
+import { PantallaView } from "@/components/pantalla-view";
+
+export default async function PantallaPage() {
+  const initialState = await getPublicGameState();
+
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-950 px-10 text-center text-white">
-      <p className="text-lg uppercase tracking-[0.3em] text-zinc-500">
-        Juego del evento
-      </p>
-      <h1 className="text-6xl font-black">Esperando a que empiece...</h1>
+    <div className="flex flex-1 flex-col bg-zinc-950 text-white">
+      <PantallaView initialState={initialState} />
     </div>
   );
 }

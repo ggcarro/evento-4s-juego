@@ -14,7 +14,16 @@ export type PruebaTipo =
 
 export type Dificultad = "facil" | "media" | "dificil";
 
-export type Fase = "lobby" | "activa" | "revelada" | "leaderboard" | "fin";
+export type Fase =
+  | "lobby"
+  | "apostando"
+  | "subastando"
+  | "activa"
+  | "revelada"
+  | "leaderboard"
+  | "fin";
+
+export type Mecanica = "portavoz_secreto" | "doble_aleatorio" | "apuesta_ciega";
 
 export interface Database {
   public: {
@@ -74,6 +83,7 @@ export interface Database {
           enunciado: string;
           config: Record<string, unknown>;
           solucion: Record<string, unknown>;
+          mecanica: Mecanica | null;
           puntos_base: number;
           duracion_segundos: number;
           created_at: string;
@@ -87,6 +97,7 @@ export interface Database {
           enunciado: string;
           config?: Record<string, unknown>;
           solucion?: Record<string, unknown>;
+          mecanica?: Mecanica | null;
           puntos_base?: number;
           duracion_segundos?: number;
           created_at?: string;
@@ -107,6 +118,7 @@ export interface Database {
           prueba_actual_id: string | null;
           fase: Fase;
           ends_at: string | null;
+          elegidos: Record<string, string> | null;
           updated_at: string;
         };
         Insert: {
@@ -114,6 +126,7 @@ export interface Database {
           prueba_actual_id?: string | null;
           fase?: Fase;
           ends_at?: string | null;
+          elegidos?: Record<string, string> | null;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["game_state"]["Insert"]>;
@@ -166,6 +179,97 @@ export interface Database {
         Insert: { id?: number; word: string; created_at?: string };
         Update: Partial<Database["public"]["Tables"]["banned_words"]["Insert"]>;
         Relationships: [];
+      };
+      apuestas: {
+        Row: {
+          id: string;
+          prueba_id: string;
+          player_id: string;
+          cantidad: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          prueba_id: string;
+          player_id: string;
+          cantidad: number;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["apuestas"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "apuestas_prueba_id_fkey";
+            columns: ["prueba_id"];
+            referencedRelation: "pruebas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "apuestas_player_id_fkey";
+            columns: ["player_id"];
+            referencedRelation: "players";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      tira_afloja_taps: {
+        Row: {
+          prueba_id: string;
+          player_id: string;
+          taps: number;
+          updated_at: string;
+        };
+        Insert: {
+          prueba_id: string;
+          player_id: string;
+          taps?: number;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["tira_afloja_taps"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "tira_afloja_taps_prueba_id_fkey";
+            columns: ["prueba_id"];
+            referencedRelation: "pruebas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "tira_afloja_taps_player_id_fkey";
+            columns: ["player_id"];
+            referencedRelation: "players";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      pujas: {
+        Row: {
+          prueba_id: string;
+          team_id: TeamId;
+          cantidad: number;
+          player_id: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          prueba_id: string;
+          team_id: TeamId;
+          cantidad?: number;
+          player_id?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["pujas"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "pujas_prueba_id_fkey";
+            columns: ["prueba_id"];
+            referencedRelation: "pruebas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "pujas_team_id_fkey";
+            columns: ["team_id"];
+            referencedRelation: "teams";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
     Views: Record<string, never>;
