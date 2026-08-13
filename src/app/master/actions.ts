@@ -436,9 +436,8 @@ export async function revealCurrent() {
   // Ruleta: cada equipo tenía un representante público + una casilla ya
   // decidida al lanzar la prueba. Si la casilla es de puntos y la mayoría
   // del equipo (entre quienes respondieron) acertó, se suma el bote a cada
-  // uno de ellos. Si es "convocatoria", el equipo entero pierde TODO su
-  // marcador acumulado, acierten o no — es incondicional a la casilla, no a
-  // la pregunta.
+  // uno de ellos. Si es "convocatoria de gracia", esa ronda no suma ni resta
+  // nada: es un resultado neutro (0 puntos), no una penalización.
   if (prueba.mecanica === "ruleta") {
     const ruletaEstado = (state.ruleta ?? {}) as RuletaEstado;
 
@@ -464,42 +463,7 @@ export async function revealCurrent() {
       const mayoria = respuestasEquipo.length > 0 && aciertos > respuestasEquipo.length / 2;
       resumenPorEquipo[teamId] = { mayoria };
 
-      if (entrada.resultado.tipo === "convocatoria") {
-        const { data: jugadoresEquipo } = await admin
-          .from("players")
-          .select("id")
-          .eq("team_id", teamId as TeamId)
-          .eq("is_kicked", false);
-        const ids = (jugadoresEquipo ?? []).map((j) => j.id);
-
-        if (ids.length > 0) {
-          const { data: historico } = await admin
-            .from("respuestas")
-            .select("player_id, prueba_id, respuesta, puntos")
-            .in("player_id", ids);
-
-          type FilaHistorica = { prueba_id: string; respuesta: Record<string, unknown>; puntos: number };
-          const porJugador = new Map<string, FilaHistorica[]>();
-          for (const r of historico ?? []) {
-            const arr = porJugador.get(r.player_id) ?? [];
-            arr.push(r);
-            porJugador.set(r.player_id, arr);
-          }
-
-          const filasWipe = ids.map((id) => {
-            const filasJugador = porJugador.get(id) ?? [];
-            const total = filasJugador.reduce((s, r) => s + r.puntos, 0);
-            const filaActual = filasJugador.find((r) => r.prueba_id === prueba.id);
-            return {
-              player_id: id,
-              prueba_id: prueba.id,
-              respuesta: filaActual?.respuesta ?? {},
-              puntos: (filaActual?.puntos ?? 0) - total,
-            };
-          });
-          await admin.from("respuestas").upsert(filasWipe, { onConflict: "player_id,prueba_id" });
-        }
-      } else if (mayoria) {
+      if (entrada.resultado.tipo === "puntos" && mayoria) {
         const bote = entrada.resultado.valor;
         const filasBote = respuestasEquipo.map((r) => ({
           player_id: r.player_id,

@@ -116,6 +116,7 @@ export function GameView({
           <SoyElElegidoBanner
             key={`${state.prueba.id}-${state.ends_at}`}
             mecanica={state.prueba.mecanica}
+            yaRespondio={answered !== null}
           />
           <RuletaBanner ruleta={state.ruleta} teamId={player.team_id} color={team?.color} />
           {state.prueba.tipo !== "titulo" && (
@@ -220,8 +221,10 @@ function MecanicaBadge({ mecanica }: { mecanica: NonNullable<GameStatePublico["p
 
 function SoyElElegidoBanner({
   mecanica,
+  yaRespondio,
 }: {
   mecanica: NonNullable<GameStatePublico["prueba"]>["mecanica"];
+  yaRespondio: boolean;
 }) {
   const [soy, setSoy] = useState(false);
 
@@ -231,6 +234,10 @@ function SoyElElegidoBanner({
   }, [mecanica]);
 
   if (!soy) return null;
+  // El portavoz secreto no se entera de que lo es hasta que ha respondido:
+  // si se revelara antes, el resto del equipo podría notarlo y presionarle
+  // para que responda lo que ellos quieren en vez de su respuesta libre.
+  if (mecanica === "portavoz_secreto" && !yaRespondio) return null;
   const texto =
     mecanica === "portavoz_secreto"
       ? "🤫 Eres el portavoz secreto de tu equipo: solo cuenta TU respuesta."
@@ -325,7 +332,7 @@ function RuletaBanner({
       <p>🎡 Representante: {entrada.representante.name}</p>
       <p>
         {entrada.resultado.tipo === "convocatoria"
-          ? "☠️ 4ª convocatoria: si os toca, perdéis TODO el marcador"
+          ? "🙏 Convocatoria de gracia: si os toca, esta ronda no suma ni resta"
           : `🎯 En juego: +${entrada.resultado.valor} pts si acierta la mayoría`}
       </p>
     </div>
@@ -347,8 +354,8 @@ function RuletaResultadoReveal({
 
   if (entrada.resultado.tipo === "convocatoria") {
     return (
-      <p className="w-full rounded-lg bg-red-100 px-4 py-2.5 text-sm font-semibold text-red-800">
-        ☠️ Os tocó la 4ª convocatoria: vuestro marcador se ha ido a 0.
+      <p className="w-full rounded-lg bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-600">
+        🙏 Os tocó la convocatoria de gracia: esta ronda no suma ni resta nada.
       </p>
     );
   }

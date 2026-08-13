@@ -593,7 +593,7 @@ function RuletaSegmentosEditor({
             className="rounded-lg border border-zinc-300 p-2 text-sm text-zinc-900"
           >
             <option value="puntos">Bote de puntos</option>
-            <option value="convocatoria">4ª convocatoria (pierde todo)</option>
+            <option value="convocatoria">Convocatoria de gracia (0 puntos)</option>
           </select>
           {seg.tipo === "puntos" && (
             <input
@@ -626,8 +626,7 @@ function RuletaSegmentosEditor({
       <p className="text-xs text-zinc-400">
         Se elige un representante por equipo (iluminado en su color) y se gira esta ruleta una vez
         por equipo. Si cae en puntos y la mayoría del equipo acierta la pregunta, se suma el bote.
-        Si cae en &quot;4ª convocatoria&quot;, el equipo pierde TODO su marcador acumulado, acierte
-        o no.
+        Si cae en &quot;Convocatoria de gracia&quot;, esa ronda no suma ni resta nada (0 puntos).
       </p>
     </div>
   );

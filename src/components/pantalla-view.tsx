@@ -273,20 +273,20 @@ function RuletaPanel({
             </p>
             <p className="text-sm font-bold text-zinc-100">
               {entrada.resultado.tipo === "convocatoria"
-                ? "☠️ 4ª convocatoria"
+                ? "🙏 Convocatoria de gracia"
                 : `🎯 +${entrada.resultado.valor} pts`}
             </p>
             <p
               className={`text-xs font-semibold ${
                 entrada.resultado.tipo === "convocatoria"
-                  ? "text-red-400"
+                  ? "text-zinc-400"
                   : mayoria
                     ? "text-green-400"
                     : "text-zinc-400"
               }`}
             >
               {entrada.resultado.tipo === "convocatoria"
-                ? "Marcador a 0"
+                ? "0 puntos esta ronda"
                 : mayoria
                   ? "¡Mayoría acertó! Bote conseguido"
                   : "Mayoría falló, sin bote"}
@@ -359,9 +359,9 @@ function RuletaReel({
             className="flex shrink-0 flex-col items-center justify-center gap-0.5 border-r border-zinc-700"
             style={{ width: REEL_CARD_WIDTH }}
           >
-            <span className="text-xl">{seg.tipo === "convocatoria" ? "☠️" : "🎯"}</span>
+            <span className="text-xl">{seg.tipo === "convocatoria" ? "🙏" : "🎯"}</span>
             <span className="text-sm font-bold text-zinc-100">
-              {seg.tipo === "convocatoria" ? "4ª convocatoria" : `+${seg.valor} pts`}
+              {seg.tipo === "convocatoria" ? "Convocatoria de gracia" : `+${seg.valor} pts`}
             </span>
           </div>
         ))}
@@ -427,7 +427,7 @@ function RuletaTurnoCard({
         </p>
         <p className="text-sm font-bold text-zinc-100">
           {entrada.resultado.tipo === "convocatoria"
-            ? "☠️ 4ª convocatoria"
+            ? "🙏 Convocatoria de gracia"
             : `🎯 +${entrada.resultado.valor} pts`}
         </p>
       </div>
